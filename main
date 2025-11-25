@@ -1,0 +1,123 @@
+import logging
+import random
+import asyncio
+from aiogram import Bot, Dispatcher, types
+# Добавляем импорт Command для регистрации команд
+from aiogram.filters import BaseFilter, Command
+from aiogram.types import Message
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+
+# --- КОНСТАНТЫ ---
+# Вставьте сюда ВАШ НОВЫЙ СЕКРЕТНЫЙ ТОКЕН!
+API_TOKEN = '8460276527:AAHOH5US5H2nzQHQdr_MoxMlrX_HxvKXvVg'
+PHOTO_FILENAME = 'photo_2025-11-25_20-24-05.jpg'
+
+TRIGGER_WORDS = [
+    "щукина",
+    "щука",
+    "шлюхина",
+    "шлюха",
+    "сукина"
+]
+
+GORE_OT_UMA_QUOTES = [
+    "А судьи кто",
+    "Счастливые часов не наблюдают.",
+    "Служить бы рад, прислуживаться тошно",
+    "Ах, злые языки страшнее пистолета."
+]
+
+
+# ------------------
+
+def format_quote_bold(quote: str) -> str:
+    """Форматирует цитату, делая каждое слово жирным с помощью **маркдауна."""
+    words = quote.split()
+    formatted_words = [f"**{word}**" for word in words]
+    return " ".join(formatted_words)
+
+
+def get_random_quote() -> str:
+    """Возвращает случайную цитату, отформатированную жирным."""
+    quote = random.choice(GORE_OT_UMA_QUOTES)
+    return format_quote_bold(quote)
+
+
+# Кастомный класс-фильтр для aiogram v3
+class TriggerWordFilter(BaseFilter):
+    """Проверяет, содержит ли сообщение любое слово из списка TRIGGER_WORDS."""
+
+    async def __call__(self, message: Message) -> bool:
+        if message.text:
+            text_lower = message.text.lower()
+            for word in TRIGGER_WORDS:
+                if word in text_lower:
+                    return True
+        return False
+
+
+# Обработчик сообщений
+async def send_photo_with_quote(message: Message):
+    """Отвечает на сообщение с триггером, отправляя фото и цитату."""
+
+    caption_text = get_random_quote()
+
+    try:
+        photo_file = types.FSInputFile(PHOTO_FILENAME)
+
+        await message.reply_photo(
+            photo=photo_file,
+            caption=caption_text,
+            parse_mode="Markdown"
+        )
+        logging.info(f"Отправлено фото в чат {message.chat.id} по триггеру: {message.text}")
+
+    except FileNotFoundError:
+        error_message = f"Ошибка: Файл {PHOTO_FILENAME} не найден. Проверьте путь."
+        await message.reply(error_message)
+        logging.error(error_message)
+
+    except Exception as e:
+        logging.error(f"Произошла ошибка при отправке фото: {e}")
+
+
+# НОВАЯ ФУНКЦИЯ: Обработчик команды /leave
+async def leave_chat_command(message: Message, bot: Bot):
+    """Обрабатывает команду /leave, заставляя бота покинуть чат."""
+    chat_id = message.chat.id
+
+    # 1. Отправляем прощальное сообщение
+    await message.reply("Хорошо, выполняю команду /leave. До свидания!")
+
+    # 2. Бот покидает чат
+    try:
+        await bot.leave_chat(chat_id)
+        logging.info(f"Бот покинул чат с ID: {chat_id}")
+    except Exception as e:
+        # Может возникнуть, если у бота нет прав (но обычно есть)
+        logging.error(f"Ошибка при попытке покинуть чат {chat_id}: {e}")
+        await message.reply("Не удалось покинуть чат. Проверьте мои права.")
+
+
+# Главная функция для асинхронного запуска
+async def main():
+    bot = Bot(token=API_TOKEN)
+    dp = Dispatcher()
+
+    # Регистрация обработчиков
+    # 1. Регистрация триггера по тексту
+    dp.message.register(send_photo_with_quote, TriggerWordFilter())
+    # 2. Регистрация команды /leave
+    dp.message.register(leave_chat_command, Command("leave"))
+
+    print("Бот (aiogram v3) запущен и готов к работе...")
+    await dp.start_polling(bot, skip_updates=True)
+
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Бот остановлен вручную.")
