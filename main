@@ -1,10 +1,10 @@
 import logging
 import random
 import asyncio
-from pathlib import Path
+from pathlib import Path 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import BaseFilter, Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile 
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -15,29 +15,26 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # Вставьте сюда ВАШ НОВЫЙ СЕКРЕТНЫЙ ТОКЕН!
 API_TOKEN = '8460276527:AAGVgUzATemFlHCeVqLEQTXvevE-lO0wfCQ'
-
-# Используем Path для фото, предполагая, что оно в корне скрипта
 PHOTO_FILENAME = str(BASE_DIR / 'photo_2025-11-25_20-24-05.jpg')
 
 # НОВЫЕ КОНСТАНТЫ ДЛЯ РЕКЛАМЫ
-VIDEO_AD_FOLDER = 'video_ads'
-# Используем Path для построения пути к видео
-VIDEO_AD_FILENAME = str(BASE_DIR / VIDEO_AD_FOLDER / 'advertisement_video.mp4')
+VIDEO_AD_FOLDER = 'video_ads' 
+VIDEO_AD_FILENAME = str(BASE_DIR / VIDEO_AD_FOLDER / 'advertisement_video.mp4') 
 
-# *** ИЗМЕНЕНИЕ ЗДЕСЬ: Заменяем <br> на \n ***
-VIDEO_AD_CAPTION = (
+# Сокращенный текст рекламы (используем HTML)
+SHORT_AD_CAPTION = (
     "📈 <b>Твоя рыбалка</b> – твои миллионы!\n"
     "<b>ЩУКАКОМБАТ</b> – самый агрессивный и прибыльный кликер 2025.\n"
-    "\n"  # Заменяем <br> на \n
-    "<b>Почему ЩукаКомбат ЛУЧШЕ?</b>\n"
+    "\n"
     "⚙️ <b>Автоматика:</b> Купи 'Щучью стаю' и наблюдай, как баланс растет сам.\n"
     "🔥 <b>Крит:</b> Вкачай 'Острые зубы' и увеличивай прибыль в два раза чаще.\n"
-    "📜 <b>Статус:</b> Оформляй ценные бумаги, чтобы получать пассивный ЩукаКоин (редкий токен).\n"
-    "<b>Заходи. Кликай. Забирай.</b>\n"
+    "📜 <b>Статус:</b> Оформляй ценные бумаги, чтобы получать пассивный ЩукаКоин.\n"
+    "\n"
     "🐟 <b>Запустить Щуку:</b> <a href=\"https://t.me/IIIUKINA_BOT\">@IIIUKINA_BOT</a> (Там нажми на кнопку Щука!)"
 )
 
-TRIGGER_WORDS = [
+# Триггеры для ЦИТАТ (старый список)
+QUOTE_TRIGGERS = [
     "щукина",
     "щука",
     "шлюхина",
@@ -45,16 +42,17 @@ TRIGGER_WORDS = [
     "сукина"
 ]
 
+# Триггер для ВИДЕО-РЕКЛАМЫ (новый, точный)
+AD_TRIGGER_PHRASE = "щука комбат"
+
 GORE_OT_UMA_QUOTES = [
     "А судьи кто",
     "Счастливые часов не наблюдают.",
     "Служить бы рад, прислуживаться тошно",
     "Ах, злые языки страшнее пистолета.",
     "Набор на службу по контракту в МО РФ",
-    # *** ИЗМЕНЕНИЕ ЗДЕСЬ: Заменяем <br> на \n ***
     "🎣 <b>Откройте все секреты удобства!</b>\n\nНе просто цитата, а совет: зайдите в нашего бота и нажмите на ту самую голубую кнопку «Щука» слева. Это наш новый секретный раздел, где всё устроено для вашего комфорта."
 ]
-
 
 # ------------------
 
@@ -73,30 +71,64 @@ def get_random_quote() -> str:
     return format_quote_bold(quote)
 
 
-# Кастомный класс-фильтр остается без изменений
-class TriggerWordFilter(BaseFilter):
-    """Проверяет, содержит ли сообщение любое слово из списка TRIGGER_WORDS."""
+# Кастомный класс-фильтр для aiogram v3 для ЦИТАТ
+class QuoteTriggerFilter(BaseFilter):
+    """Проверяет, содержит ли сообщение любое слово из списка QUOTE_TRIGGERS."""
+
+    def __init__(self, trigger_words: list):
+        self.trigger_words = [w.lower() for w in trigger_words]
 
     async def __call__(self, message: Message) -> bool:
         if message.text:
             text_lower = message.text.lower()
-            for word in TRIGGER_WORDS:
+            for word in self.trigger_words:
                 if word in text_lower:
                     return True
         return False
 
+# НОВЫЙ КЛАСС-ФИЛЬТР для ВИДЕО-РЕКЛАМЫ
+class AdTriggerFilter(BaseFilter):
+    """Проверяет, содержит ли сообщение точную фразу AD_TRIGGER_PHRASE."""
 
-# Обновленный обработчик сообщений
-async def send_photo_with_quote_and_ad(message: Message):
-    """Отвечает на сообщение с триггером, отправляя фото, цитату И рекламное видео."""
+    async def __call__(self, message: Message) -> bool:
+        if message.text:
+            # Ищем точное совпадение с фразой
+            return AD_TRIGGER_PHRASE in message.text.lower()
+        return False
 
-    # --- 1. Отправка фото и цитаты ---
+
+# НОВЫЙ ОБРАБОТЧИК: Отправляет ТОЛЬКО видео-рекламу
+async def send_ad_video(message: Message):
+    """Отвечает на сообщение с триггером "щука комбат", отправляя только рекламное видео."""
+
+    try:
+        video_file = FSInputFile(VIDEO_AD_FILENAME) 
+
+        await message.answer_video(
+            video=video_file,
+            caption=SHORT_AD_CAPTION,
+            parse_mode="HTML"
+        )
+        logging.info(f"Отправлено рекламное видео в чат {message.chat.id} по триггеру: {AD_TRIGGER_PHRASE}")
+
+    except FileNotFoundError:
+        error_message = f"Ошибка: Файл рекламного видео не найден по пути {VIDEO_AD_FILENAME}. Проверьте структуру папок."
+        await message.answer(error_message)
+        logging.error(error_message)
+    
+    except Exception as e:
+        logging.error(f"Произошла ошибка при отправке видео: {e}")
+
+
+# МОДИФИЦИРОВАННЫЙ ОБРАБОТЧИК: Отправляет ТОЛЬКО фото с цитатой
+async def send_photo_with_quote(message: Message):
+    """Отвечает на сообщение с триггером, отправляя только фото и цитату."""
+
     caption_text = get_random_quote()
 
     try:
         photo_file = types.FSInputFile(PHOTO_FILENAME)
 
-        # parse_mode="HTML" остается
         await message.reply_photo(
             photo=photo_file,
             caption=caption_text,
@@ -112,29 +144,10 @@ async def send_photo_with_quote_and_ad(message: Message):
     except Exception as e:
         logging.error(f"Произошла ошибка при отправке фото: {e}")
 
-    # --- 2. Отправка рекламного видео ---
-    try:
-        video_file = FSInputFile(VIDEO_AD_FILENAME)
 
-        # parse_mode="HTML" остается
-        await message.answer_video(
-            video=video_file,
-            caption=VIDEO_AD_CAPTION,
-            parse_mode="HTML"
-        )
-        logging.info(f"Отправлено рекламное видео в чат {message.chat.id}")
-
-    except FileNotFoundError:
-        error_message = f"Ошибка: Файл рекламного видео не найден по пути {VIDEO_AD_FILENAME}. Проверьте структуру папок."
-        await message.answer(error_message)
-        logging.error(error_message)
-
-    except Exception as e:
-        logging.error(f"Произошла ошибка при отправке видео: {e}")
-
-
-# НОВАЯ ФУНКЦИЯ: Обработчик команды /leave
+# Обработчик команды /leave (без изменений)
 async def leave_chat_command(message: Message, bot: Bot):
+    """Обрабатывает команду /leave, заставляя бота покинуть чат."""
     chat_id = message.chat.id
     await message.reply("Хорошо, выполняю команду /leave. До свидания!")
     try:
@@ -150,7 +163,17 @@ async def main():
     bot = Bot(token=API_TOKEN)
     dp = Dispatcher()
 
-    dp.message.register(send_photo_with_quote_and_ad, TriggerWordFilter())
+    # РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ:
+    
+    # 1. Регистрация точного триггера "щука комбат" (самый высокий приоритет)
+    dp.message.register(send_ad_video, AdTriggerFilter())
+    
+    # 2. Регистрация широкого триггера (второй приоритет)
+    # Если сообщение содержит "щука комбат", оно будет обработано первым, 
+    # и до этого обработчика дело не дойдет.
+    dp.message.register(send_photo_with_quote, QuoteTriggerFilter(QUOTE_TRIGGERS))
+    
+    # 3. Регистрация команды /leave
     dp.message.register(leave_chat_command, Command("leave"))
 
     print("Бот (aiogram v3) запущен и готов к работе...")
