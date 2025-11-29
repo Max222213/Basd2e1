@@ -11,8 +11,6 @@ logging.basicConfig(level=logging.INFO)
 
 # --- НОВЫЙ ЭЛЕМЕНТ: ГЛОБАЛЬНОЕ ХРАНИЛИЩЕ СООБЩЕНИЙ ---
 # {chat_id: {message_id, message_id, ...}}
-# ВАЖНО: Это хранилище сбрасывается при перезапуске бота! 
-# Для постоянного хранения нужна база данных.
 BOT_SENT_MESSAGES = {} 
 # --------------------------------------------------------
 
@@ -27,6 +25,8 @@ PHOTO_FILENAME = str(BASE_DIR / 'photo_2025-11-25_20-24-05.jpg')
 # НОВЫЕ КОНСТАНТЫ ДЛЯ РЕКЛАМЫ
 VIDEO_AD_FOLDER = 'video_ads' 
 VIDEO_AD_FILENAME = str(BASE_DIR / VIDEO_AD_FOLDER / 'advertisement_video.mp4') 
+# НОВАЯ КОНСТАНТА ДЛЯ МУЗЫКИ
+MUSIC_FILENAME = str(BASE_DIR / 'music.mp3')
 
 # Время для автоудаления (1 час = 3600 секунд)
 DELETION_DELAY_SECONDS = 3600 
@@ -81,7 +81,7 @@ def get_random_quote() -> str:
         return quote
     return format_quote_bold(quote)
 
-# --- НОВАЯ ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: Планирование удаления ---
+# Функция для планирования удаления (без изменений)
 async def schedule_deletion(bot: Bot, chat_id: int, message_id: int, delay: int):
     """Планирует удаление сообщения через указанное время."""
     await asyncio.sleep(delay)
@@ -90,15 +90,14 @@ async def schedule_deletion(bot: Bot, chat_id: int, message_id: int, delay: int)
         await bot.delete_message(chat_id, message_id)
         logging.info(f"Сообщение {message_id} в чате {chat_id} удалено через {delay} секунд.")
     except Exception as e:
-        # Может быть, сообщение уже удалено пользователем или боту не хватает прав
         logging.warning(f"Не удалось удалить сообщение {message_id} в чате {chat_id}: {e}")
     finally:
-        # Очищаем из хранилища после попытки удаления
         if chat_id in BOT_SENT_MESSAGES and message_id in BOT_SENT_MESSAGES[chat_id]:
              BOT_SENT_MESSAGES[chat_id].remove(message_id)
              if not BOT_SENT_MESSAGES[chat_id]:
                  del BOT_SENT_MESSAGES[chat_id]
 
+# Функция для регистрации сообщения (без изменений)
 def register_message(message: types.Message):
     """Регистрирует отправленное сообщение бота для последующей очистки."""
     chat_id = message.chat.id
@@ -113,9 +112,9 @@ def register_message(message: types.Message):
 # ------------------
 # ФИЛЬТРЫ
 # ------------------
+# (Остаются без изменений)
 
 class QuoteTriggerFilter(BaseFilter):
-    """Проверяет, содержит ли сообщение любое слово из списка QUOTE_TRIGGERS."""
     def __init__(self, trigger_words: list):
         self.trigger_words = [w.lower() for w in trigger_words]
 
@@ -128,7 +127,6 @@ class QuoteTriggerFilter(BaseFilter):
         return False
 
 class AdTriggerFilter(BaseFilter):
-    """Проверяет, содержит ли сообщение точную фразу AD_TRIGGER_PHRASE."""
     async def __call__(self, message: Message) -> bool:
         if message.text:
             return AD_TRIGGER_PHRASE in message.text.lower()
@@ -138,78 +136,89 @@ class AdTriggerFilter(BaseFilter):
 # ОБРАБОТЧИКИ
 # ------------------
 
-# Обработчик команды /clear123
+# Обработчик команды /clear123 (без изменений)
 async def clear_command(message: Message, bot: Bot):
     """Удаляет все сообщения, отправленные ботом в зарегистрированных чатах."""
     
-    # Отправляем сообщение о начале очистки
     initial_message = await message.reply("Начинаю очистку всех моих сообщений...")
-    
     deleted_count = 0
-    
-    # Создаем копию ключей, чтобы избежать ошибок при изменении словаря в цикле
     chats_to_clear = list(BOT_SENT_MESSAGES.keys())
     
     for chat_id in chats_to_clear:
-        # Копируем set, т.к. мы будем его менять при удалении
         message_ids = list(BOT_SENT_MESSAGES.get(chat_id, set()))
         
         for message_id in message_ids:
             try:
-                # Пытаемся удалить
                 await bot.delete_message(chat_id, message_id)
                 deleted_count += 1
                 logging.info(f"Удалено сообщение {message_id} в чате {chat_id} командой /clear123.")
             except Exception as e:
-                # Игнорируем ошибки (сообщение уже удалено, или нет прав)
                 logging.warning(f"Не удалось удалить сообщение {message_id} в чате {chat_id} командой /clear123: {e}")
             finally:
-                # Удаляем из списка для очистки
                 if chat_id in BOT_SENT_MESSAGES and message_id in BOT_SENT_MESSAGES[chat_id]:
                      BOT_SENT_MESSAGES[chat_id].remove(message_id)
     
-    # Очищаем пустые чаты из словаря
     BOT_SENT_MESSAGES.clear()
     
-    # Удаляем сообщение о начале очистки и сообщаем результат
     try:
         await initial_message.delete()
         await message.reply(f"✅ Очистка завершена! Удалено {deleted_count} моих сообщений.")
     except Exception:
-        # Если не удалось удалить начальное сообщение, просто отправляем новое
         await message.reply(f"✅ Очистка завершена! Удалено {deleted_count} моих сообщений.")
         
     logging.info(f"Команда /clear123 завершена. Всего удалено: {deleted_count}")
 
 
-# Обработчик для ВИДЕО-РЕКЛАМЫ
+# МОДИФИЦИРОВАННЫЙ ОБРАБОТЧИК: Отправляет видео, рекламу И музыку
 async def send_ad_video(message: Message, bot: Bot):
-    """Отвечает на сообщение с триггером "щука комбат", отправляя только рекламное видео."""
+    """Отвечает на сообщение с триггером 'щука комбат', отправляя видео, рекламу и музыку."""
 
+    # --- 1. Отправка ВИДЕО ---
     try:
         video_file = FSInputFile(VIDEO_AD_FILENAME) 
-
-        sent_message = await message.answer_video(
+        sent_video = await message.answer_video(
             video=video_file,
             caption=SHORT_AD_CAPTION,
             parse_mode="HTML"
         )
-        logging.info(f"Отправлено рекламное видео в чат {message.chat.id} по триггеру: {AD_TRIGGER_PHRASE}")
+        logging.info(f"Отправлено рекламное видео в чат {message.chat.id}")
         
-        # Регистрация и планирование автоудаления
-        register_message(sent_message)
-        asyncio.create_task(schedule_deletion(bot, sent_message.chat.id, sent_message.message_id, DELETION_DELAY_SECONDS))
+        # Регистрация и планирование автоудаления для видео
+        register_message(sent_video)
+        asyncio.create_task(schedule_deletion(bot, sent_video.chat.id, sent_video.message_id, DELETION_DELAY_SECONDS))
 
     except FileNotFoundError:
         error_message = f"Ошибка: Файл рекламного видео не найден по пути {VIDEO_AD_FILENAME}."
         await message.answer(error_message)
         logging.error(error_message)
-    
     except Exception as e:
         logging.error(f"Произошла ошибка при отправке видео: {e}")
 
+    # --- 2. Отправка АУДИО ---
+    try:
+        music_file = FSInputFile(MUSIC_FILENAME)
+        
+        # Отправляем аудиофайл
+        sent_audio = await message.answer_audio(
+            audio=music_file,
+            caption="🎶 Музыка для вашего ЩукаКомбата!", # Можете изменить этот текст
+            parse_mode="HTML"
+        )
+        logging.info(f"Отправлено аудио music.mp3 в чат {message.chat.id}")
+        
+        # Регистрация и планирование автоудаления для аудио
+        register_message(sent_audio)
+        asyncio.create_task(schedule_deletion(bot, sent_audio.chat.id, sent_audio.message_id, DELETION_DELAY_SECONDS))
 
-# Обработчик для ФОТО С ЦИТАТОЙ
+    except FileNotFoundError:
+        error_message = f"Ошибка: Файл аудио music.mp3 не найден по пути {MUSIC_FILENAME}. Убедитесь, что он лежит рядом с main.py."
+        await message.answer(error_message)
+        logging.error(error_message)
+    except Exception as e:
+        logging.error(f"Произошла ошибка при отправке аудио: {e}")
+
+
+# Обработчик для ФОТО С ЦИТАТОЙ (без изменений, кроме добавления `bot: Bot` для планирования)
 async def send_photo_with_quote(message: Message, bot: Bot):
     """Отвечает на сообщение с триггером, отправляя только фото и цитату."""
 
@@ -241,7 +250,6 @@ async def send_photo_with_quote(message: Message, bot: Bot):
 # Обработчик команды /leave (без изменений)
 async def leave_chat_command(message: Message, bot: Bot):
     """Обрабатывает команду /leave, заставляя бота покинуть чат."""
-    # ... (логика остается прежней)
     chat_id = message.chat.id
     await message.reply("Хорошо, выполняю команду /leave. До свидания!")
     try:
@@ -252,7 +260,7 @@ async def leave_chat_command(message: Message, bot: Bot):
         await message.reply("Не удалось покинуть чат. Проверьте мои права.")
 
 
-# Главная функция для асинхронного запуска
+# Главная функция для асинхронного запуска (без изменений)
 async def main():
     bot = Bot(token=API_TOKEN)
     dp = Dispatcher()
@@ -265,10 +273,10 @@ async def main():
     # 2. Регистрация широкого триггера
     dp.message.register(send_photo_with_quote, QuoteTriggerFilter(QUOTE_TRIGGERS))
     
-    # 3. НОВАЯ КОМАНДА ДЛЯ ОЧИСТКИ
+    # 3. Команда для очистки
     dp.message.register(clear_command, Command("clear123"))
     
-    # 4. Регистрация команды /leave
+    # 4. Команда /leave
     dp.message.register(leave_chat_command, Command("leave"))
 
     print("Бот (aiogram v3) запущен и готов к работе...")
